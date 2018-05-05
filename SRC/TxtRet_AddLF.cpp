@@ -4,7 +4,19 @@
 
 #include "stdafx.h"
 #include "TxtRet_AddLF.h"
+#ifndef APPLE
 #include "direct.h"
+#endif
+
+#ifdef APPLE
+typedef std::string CString;
+#include <cassert>
+#define ASSERT assert
+#define _T 
+#define Left(x)             substr(0,x)
+#define CompareNoCase(str)  compare(str)
+#define DWORD unsigned int
+#endif
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -23,25 +35,35 @@ bool addBOM = false;
 /////////////////////////////////////////////////////////////////////////////
 // The one and only application object
 
+#ifndef APPLE
 CWinApp theApp;
+#else
+typedef char TCHAR;
+#endif
 
 using namespace std;
 
+#ifdef APPLE
+int main(int argc, char* argv[])
+#else
 int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
+#endif
 {
 	// initialize MFC and print and error on failure
+#ifndef APPLE
 	if (!AfxWinInit(::GetModuleHandle(NULL), NULL, ::GetCommandLine(), 0))
 	{
 		// TODO: change error code to suit your needs
 		cerr << _T("Fatal Error: MFC initialization failed") << endl;
 		return 1;
 	}
+#endif
 	bool syntax=false;//assume no syntax error
 	bool verbose=false;
 	CString test;
 	if (argc==4)
 	{//check for output type
-		test=LPCTSTR(argv[3]);
+		test=(argv[3]);
 		if (test[0]=='-' || test[0]=='/') 
 		{
 			int pos=1;
@@ -102,7 +124,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 		} else
 			syntax=true;
 	}
-	if (argc==2 && (test=LPCTSTR(argv[1])).Left(6).CompareNoCase("option")==0)
+	if (argc==2 && (test=(argv[1])).substr(0,6).compare("option")==0)
 	{//list options
 		cout << _T("The available (case-sensitive) options are:") << endl;
 		cout << _T("v -- Verbose (list files processed).") << endl;
@@ -192,29 +214,40 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 		cout << _T("Try larger encoding (UTF-8, UTF-16LE, or UTF-16BE).") << endl;
 		return 2;//error -- incompatible inputs
 	}
-	DWORD fAtrib=GetFileAttributes(LPCTSTR(argv[1]));
+#ifndef APPLE
+	DWORD fAtrib=GetFileAttributes((argv[1]));
 	if (fAtrib==-1)
 	{
 		cout << _T("Could not access: ") << LPCTSTR(argv[1]) << endl;
 		return 2;
 	}
+#endif
+#ifdef APPLE
+  string s1 = argv[1];
+  string s2 = argv[2];
+	if (delRetFromFldr(&s1,&s2,verbose))//process initial folder
+#else
 	if (delRetFromFldr(LPCTSTR(argv[1]),LPCTSTR(argv[2]),verbose))//process initial folder
+#endif
 		return 0;
 	return 2;//error processing
 }
 
 bool delRetFromFldr(LPCTSTR source, LPCTSTR dest, bool verbose)
 {
+#ifndef APPLE
 	DWORD fAtrib=GetFileAttributes(source);
 	if (fAtrib==-1)
 		return false;//couldn't access source (the caller should've checked already)
 	if (!(fAtrib&FILE_ATTRIBUTE_DIRECTORY))
+#endif
 		return delRetFromFile(source, dest);//just process a single file
 /*	//extract the name of current folder from path
 	CString fldrName=source;
 	int pos=fldrName.ReverseFind('\\');
 	if (pos>=0)
 		fldrName=fldrName.Mid(pos+1);//kill the path (keep the name)*/
+#ifndef APPLE
 	if (verbose)
 		cout << source << endl;
 	CString searchPath=source;
@@ -270,18 +303,28 @@ bool delRetFromFldr(LPCTSTR source, LPCTSTR dest, bool verbose)
 	while(FindNextFile(searchHandle,&searchData));
 	FindClose(searchHandle);//free system resource
 	return good;//return success / failure status
+#endif // not APPLE
 }
+
+#include <fstream>
 
 bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 {
-	CFile orig;
+	ifstream orig;
+
+#ifdef APPLE
+  orig.open(source->c_str());
+#else
 	CFileException ferror;
 	if (!orig.Open(source,CFile::modeRead|CFile::shareDenyWrite,&ferror))
 	{
 		cout << _T("\r\nCouldn't open: ") << source << endl;
 		return false;
 	}
-	CString copyName=dest;
+#endif
+
+	CString copyName=dest->c_str();
+#ifndef APPLE
 	DWORD fAtrib=GetFileAttributes(copyName);
 	if (fAtrib!=-1 && GetFileAttributes(copyName)&FILE_ATTRIBUTE_DIRECTORY)
 	{//destination is a directory: use source name
@@ -292,16 +335,21 @@ bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 		copyName+='\\';//destination folder name...
 		copyName+=temp.Mid(pos+1);//plus source filename = dest path name
 	}
+#endif
 #define	BUF_SIZE 2048
 	char buffer[BUF_SIZE];
 	char outBuf[3*BUF_SIZE];
-	CFile copyFile;
+	ofstream copyFile;
+#ifdef APPLE
+  copyFile.open(copyName.c_str());
+#else
 	if (!copyFile.Open(LPCTSTR(copyName),CFile::modeCreate|CFile::modeWrite|CFile::shareExclusive))
 	{
 		orig.Close();
 		cout << _T("\r\nCouldn't create: ") << copyName << endl;
 		return false;
 	}
+#endif
 
 	if (addBOM && (outCode==UTF16LE || outCode==UTF16BE))
 	{//add Byte-Order-Marker to output
@@ -312,13 +360,27 @@ bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 			buffer[0] = 0xfe;
 			buffer[1] = 0xff;
 		}
+#ifdef APPLE
+    buffer[2] = 0x00;
+    copyFile << buffer;
+#else
 		copyFile.Write(LPVOID(buffer),2);
+#endif
 	}
 
+#ifdef APPLE
+  while (orig.peek() != EOF)
+#else
     unsigned int remain=orig.GetLength();
 	while (orig.GetPosition()<remain)
+#endif
 	{
+#ifdef APPLE
+    orig.read(buffer, BUF_SIZE);
+    int bufsiz=orig.gcount();
+#else
 		int bufsiz=orig.Read(LPVOID(buffer),BUF_SIZE);
+#endif
 		int i=0;
 		while (i<bufsiz && buffer[i]!='\r'/* && buffer[i]!='\n'*/) ++i;
 		int j;//input position
@@ -649,7 +711,7 @@ bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 			{//WIN output
 				if (rawC == 0x2022 || rawC == 0x2219)
 					rawC = 0x95; //bullet (solid circle)
-				else if (rawC > 0xff || rawC >= 0x80 && rawC < 0xa0) {
+				else if (rawC > 0xff || (rawC >= 0x80 && rawC < 0xa0)) {
 					rawC = 0x7f; //invalid
 				}
 			}// else Unicode output
@@ -681,11 +743,11 @@ bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 					lenC = 1;
 				} else if (rawC < 0x800)
 				{//2-byte sequence
-					encC = ((rawC & 0x3f | 0x80) << 8) | ((rawC & 0x7c0) << 2) | 0xc0;
+					encC = (((rawC & 0x3f) | 0x80) << 8) | ((rawC & 0x7c0) << 2) | 0xc0;
 					lenC = 2;
 				} else if (rawC < 0x10000)
 				{//3-byte sequence
-					encC = ((rawC & 0x3f | 0x80) << 16) | (( ((rawC & 0xfc0) >> 6) | 0x80) << 8) | ((rawC & 0xf000) >> 12) | 0xe0;
+					encC = (((rawC & 0x3f) | 0x80) << 16) | (( ((rawC & 0xfc0) >> 6) | 0x80) << 8) | ((rawC & 0xf000) >> 12) | 0xe0;
 					lenC = 3;
 				} else
 				{//oops!
@@ -781,13 +843,26 @@ bool delRetFromFile(LPCTSTR source, LPCTSTR dest)
 		}
 
 		//write buffer to file
+#ifdef APPLE
+    copyFile.write(outBuf,k);
+#else
 		copyFile.Write(LPVOID(outBuf),k);
+#endif
 
 		//backup to character after input-CR
 		if (found)
+#ifdef APPLE
+      orig.seekg(i-bufsiz+1, ios_base::cur);
+#else
 			orig.Seek(i-bufsiz+1,CFile::current);
+#endif
 	}
+#ifdef APPLE
+  orig.close();
+  copyFile.close();
+#else
 	orig.Close();
 	copyFile.Close();
+#endif
 	return true;
 }

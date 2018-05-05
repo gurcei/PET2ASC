@@ -45,6 +45,10 @@ enum NoTxtTrans {
 	NO_POUND_ASSIGN_PI
 };
 
+#include <iostream>
+#include <string>
+
+typedef std::string* LPCTSTR;
 
 bool delRetFromFldr(LPCTSTR source, LPCTSTR dest, bool verbose);
 bool delRetFromFile(LPCTSTR source, LPCTSTR dest);
